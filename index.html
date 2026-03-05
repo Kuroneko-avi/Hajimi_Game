@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>耄耋像素大战</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main>
+      <header class="header">
+        <h1>耄耋像素大战</h1>
+        <p>WASD/方向键移动，鼠标指向并按住左键射击，拾取道具强化自己。</p>
+      </header>
+      <canvas id="game" width="320" height="180" aria-label="耄耋像素大战"></canvas>
+      <section class="legend">
+        <div><span class="legend-dot health"></span>生命恢复</div>
+        <div><span class="legend-dot speed"></span>移动速度</div>
+        <div><span class="legend-dot fire"></span>射速提升</div>
+        <div><span class="legend-dot damage"></span>弹幕伤害</div>
+      </section>
+    </main>
+    <script src="game.js"></script>
+  </body>
+</html>

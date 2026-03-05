@@ -1,0 +1,22 @@
+{
+  "name": "hajimi_game",
+  "version": "1.0.0",
+  "description": "2D pixel survival game featuring Hajimi the cat meme.",
+  "main": "game.js",
+  "scripts": {
+    "start": "python3 -m http.server 8000",
+    "test": "echo \"No tests specified\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Kuroneko-avi/Hajimi_Game.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Kuroneko-avi/Hajimi_Game/issues"
+  },
+  "homepage": "https://github.com/Kuroneko-avi/Hajimi_Game#readme"
+}
