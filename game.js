@@ -2,6 +2,8 @@ const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 ctx.imageSmoothingEnabled = false;
 
+const MAX_DELTA_TIME = 1 / 30;
+
 const world = {
   width: canvas.width,
   height: canvas.height,
@@ -524,7 +526,7 @@ const render = () => {
 };
 
 const loop = (timestamp) => {
-  const dt = Math.min(0.033, (timestamp - state.lastTime) / 1000);
+  const dt = Math.min(MAX_DELTA_TIME, (timestamp - state.lastTime) / 1000);
   state.lastTime = timestamp;
   update(dt);
   render();
