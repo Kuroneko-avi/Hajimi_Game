@@ -2,7 +2,7 @@ const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 ctx.imageSmoothingEnabled = false;
 
-const MAX_TIME_STEP = 1 / 30;
+const MAX_FRAME_DURATION = 1 / 30;
 
 const world = {
   width: canvas.width,
@@ -271,10 +271,12 @@ const updatePlayer = (dt) => {
   if (input.keys.has("s") || input.keys.has("arrowdown")) moveY += 1;
   if (input.keys.has("a") || input.keys.has("arrowleft")) moveX -= 1;
   if (input.keys.has("d") || input.keys.has("arrowright")) moveX += 1;
-  const moveMagnitude = Math.hypot(moveX, moveY) || 1;
-  const speed = player.speed * dt;
-  player.x += (moveX / moveMagnitude) * speed;
-  player.y += (moveY / moveMagnitude) * speed;
+  const moveMagnitude = Math.hypot(moveX, moveY);
+  if (moveMagnitude > 0) {
+    const speed = player.speed * dt;
+    player.x += (moveX / moveMagnitude) * speed;
+    player.y += (moveY / moveMagnitude) * speed;
+  }
   player.x = clamp(player.x, player.radius, world.width - player.radius);
   player.y = clamp(player.y, player.radius, world.height - player.radius);
 
@@ -306,9 +308,13 @@ const updateEnemies = (dt) => {
     const enemy = enemies[i];
     const dx = player.x - enemy.x;
     const dy = player.y - enemy.y;
-    const distance = Math.hypot(dx, dy) || 1;
-    enemy.x += (dx / distance) * enemy.speed * dt;
-    enemy.y += (dy / distance) * enemy.speed * dt;
+    const distance = Math.hypot(dx, dy);
+    const directionX = distance === 0 ? 0 : dx / distance;
+    const directionY = distance === 0 ? 0 : dy / distance;
+    if (distance > 0) {
+      enemy.x += directionX * enemy.speed * dt;
+      enemy.y += directionY * enemy.speed * dt;
+    }
 
     enemy.bulletTimer -= dt;
     if (enemy.bulletTimer <= 0) {
@@ -323,8 +329,8 @@ const updateEnemies = (dt) => {
       player.hp = Math.max(0, player.hp - enemy.damage);
       enemy.contactTimer = 0.7;
       const push = 8;
-      enemy.x -= (dx / distance) * push;
-      enemy.y -= (dy / distance) * push;
+      enemy.x -= directionX * push;
+      enemy.y -= directionY * push;
     }
   }
 };
@@ -526,7 +532,7 @@ const render = () => {
 };
 
 const loop = (timestamp) => {
-  const dt = Math.min(MAX_TIME_STEP, (timestamp - state.lastTime) / 1000);
+  const dt = Math.min(MAX_FRAME_DURATION, (timestamp - state.lastTime) / 1000);
   state.lastTime = timestamp;
   update(dt);
   render();
