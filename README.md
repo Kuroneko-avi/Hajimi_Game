@@ -7,8 +7,8 @@
 ### 1. 环境要求
 
 - Node.js 16+（建议使用 LTS 版本）
-- npm 8+
-- Python 3（用于本地静态文件服务，`npm run start` 会调用 `python3 -m http.server 8000`）
+- npm 8+（通常随 Node.js 一起安装）
+- Python 3.6+（用于本地静态文件服务；当前 `package.json` 中 `npm run start` 默认调用 `python3 -m http.server 8000`）
 - 现代浏览器（Chrome / Edge / Firefox / Safari）
 
 ### 2. 本地部署（开发与自测）
@@ -18,6 +18,7 @@
    git clone https://github.com/Kuroneko-avi/Hajimi_Game.git
    cd Hajimi_Game
    ```
+   > 如果你使用的是 Fork 仓库，请将上述地址替换为你自己的仓库 URL。
 2. 安装依赖（当前项目依赖较少，仍建议执行以保证脚本环境一致）：
    ```bash
    npm install
@@ -54,7 +55,7 @@
    ```nginx
    server {
        listen 80;
-       server_name your-domain.com;
+       server_name your-domain.com; # 替换为你的实际域名
 
        root /var/www/hajimi_game;
        index index.html;
