@@ -1,5 +1,20 @@
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
+const hudHp = document.getElementById("hudHp");
+const hudKills = document.getElementById("hudKills");
+const hudTime = document.getElementById("hudTime");
+const startMenu = document.getElementById("startMenu");
+const settingsMenu = document.getElementById("settingsMenu");
+const pauseMenu = document.getElementById("pauseMenu");
+const startGameBtn = document.getElementById("startGameBtn");
+const openSettingsBtn = document.getElementById("openSettingsBtn");
+const closeSettingsBtn = document.getElementById("closeSettingsBtn");
+const resumeGameBtn = document.getElementById("resumeGameBtn");
+const backToMenuBtn = document.getElementById("backToMenuBtn");
+const settingsBgmVolume = document.getElementById("settingsBgmVolume");
+const settingsSfxVolume = document.getElementById("settingsSfxVolume");
+const pauseBgmVolume = document.getElementById("pauseBgmVolume");
+const pauseSfxVolume = document.getElementById("pauseSfxVolume");
 ctx.imageSmoothingEnabled = false;
 
 const MAX_FRAME_DURATION = 1 / 30;
@@ -32,6 +47,8 @@ const state = {
   spawnTimer: 0,
   kills: 0,
   gameOver: false,
+  scene: "menu",
+  fromPause: false,
   lastTime: performance.now(),
 };
 
@@ -110,10 +127,151 @@ const enemyBullets = [];
 const items = [];
 const floatingTexts = [];
 
+const audioState = {
+  bgmVolume: 0.5,
+  sfxVolume: 0.7,
+  bgmTrackIndex: -1,
+  bgmElement: null,
+  retryTimer: null,
+};
+
+const bgmTracks = [
+  "assets/bgm/track-01.mp3",
+  "assets/bgm/track-02.mp3",
+  "assets/bgm/track-03.mp3",
+];
+
+const sfxMap = {
+  shoot: "assets/sfx/shoot.wav",
+  hit: "assets/sfx/hit.wav",
+  kill: "assets/sfx/kill.wav",
+  item: "assets/sfx/item.wav",
+};
+
+const sfxPools = Object.fromEntries(
+  Object.entries(sfxMap).map(([name, src]) => {
+    const pool = Array.from({ length: 6 }, () => {
+      const audio = new Audio(src);
+      audio.preload = "auto";
+      return audio;
+    });
+    return [name, { index: 0, pool }];
+  })
+);
+
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const randomRange = (min, max) => min + Math.random() * (max - min);
 
 const getDifficulty = () => 1 + state.time / 60;
+
+const setOverlayVisible = (element, visible) => {
+  element.classList.toggle("visible", visible);
+};
+
+const syncVolumeSliders = () => {
+  settingsBgmVolume.value = String(audioState.bgmVolume);
+  pauseBgmVolume.value = String(audioState.bgmVolume);
+  settingsSfxVolume.value = String(audioState.sfxVolume);
+  pauseSfxVolume.value = String(audioState.sfxVolume);
+};
+
+const applyVolumeSettings = () => {
+  if (audioState.bgmElement) {
+    audioState.bgmElement.volume = audioState.bgmVolume;
+  }
+};
+
+const playSfx = (name) => {
+  const entry = sfxPools[name];
+  if (!entry || audioState.sfxVolume <= 0) return;
+  const sound = entry.pool[entry.index];
+  entry.index = (entry.index + 1) % entry.pool.length;
+  sound.currentTime = 0;
+  sound.volume = audioState.sfxVolume;
+  sound.play().catch(() => {});
+};
+
+const pickNextTrackIndex = () => {
+  if (bgmTracks.length <= 1) return 0;
+  let next = audioState.bgmTrackIndex;
+  while (next === audioState.bgmTrackIndex) {
+    next = Math.floor(Math.random() * bgmTracks.length);
+  }
+  return next;
+};
+
+const startRandomBgm = () => {
+  if (state.scene !== "playing") return;
+  if (!audioState.bgmElement) {
+    audioState.bgmElement = new Audio();
+    audioState.bgmElement.addEventListener("ended", startRandomBgm);
+    audioState.bgmElement.addEventListener("error", () => {
+      if (audioState.retryTimer) clearTimeout(audioState.retryTimer);
+      audioState.retryTimer = setTimeout(startRandomBgm, 1000);
+    });
+  }
+  if (!bgmTracks.length) return;
+  audioState.bgmTrackIndex = pickNextTrackIndex();
+  audioState.bgmElement.src = bgmTracks[audioState.bgmTrackIndex];
+  audioState.bgmElement.volume = audioState.bgmVolume;
+  audioState.bgmElement.play().catch(() => {});
+};
+
+const pauseBgm = () => {
+  if (audioState.retryTimer) {
+    clearTimeout(audioState.retryTimer);
+    audioState.retryTimer = null;
+  }
+  if (audioState.bgmElement) {
+    audioState.bgmElement.pause();
+  }
+};
+
+const resumeBgm = () => {
+  if (state.scene !== "playing") return;
+  if (audioState.bgmElement && audioState.bgmElement.src) {
+    audioState.bgmElement.volume = audioState.bgmVolume;
+    audioState.bgmElement.play().catch(() => {});
+    return;
+  }
+  startRandomBgm();
+};
+
+const resizeCanvas = () => {
+  const rect = canvas.getBoundingClientRect();
+  const width = Math.max(320, Math.floor(rect.width));
+  const height = Math.max(180, Math.floor(rect.height));
+  canvas.width = width;
+  canvas.height = height;
+  world.width = width;
+  world.height = height;
+  player.x = clamp(player.x, player.radius, world.width - player.radius);
+  player.y = clamp(player.y, player.radius, world.height - player.radius);
+  input.mouse.x = clamp(input.mouse.x, 0, world.width);
+  input.mouse.y = clamp(input.mouse.y, 0, world.height);
+  enemies.forEach((enemy) => {
+    enemy.x = clamp(enemy.x, -12, world.width + 12);
+    enemy.y = clamp(enemy.y, -12, world.height + 12);
+  });
+  items.forEach((item) => {
+    item.x = clamp(item.x, item.radius, world.width - item.radius);
+    item.y = clamp(item.y, item.radius, world.height - item.radius);
+  });
+  playerBullets.forEach((bullet) => {
+    bullet.x = clamp(bullet.x, -10, world.width + 10);
+    bullet.y = clamp(bullet.y, -10, world.height + 10);
+  });
+  enemyBullets.forEach((bullet) => {
+    bullet.x = clamp(bullet.x, -10, world.width + 10);
+    bullet.y = clamp(bullet.y, -10, world.height + 10);
+  });
+};
+
+const updateHudUi = () => {
+  hudHp.textContent = `${Math.ceil(player.hp)}/${Math.ceil(player.maxHp)}`;
+  hudKills.textContent = String(state.kills);
+  hudTime.textContent = `${state.time.toFixed(0)}s`;
+};
 
 const resetGame = () => {
   player.x = world.width / 2;
@@ -212,6 +370,7 @@ const firePlayerBullet = () => {
     "#a5d8ff",
     player.damage
   );
+  playSfx("shoot");
 };
 
 const fireEnemyBullets = (enemy) => {
@@ -344,9 +503,11 @@ const handleCollisions = () => {
       if (distance < enemy.radius + bullet.radius) {
         enemy.hp -= bullet.damage;
         playerBullets.splice(j, 1);
+        playSfx("hit");
         if (enemy.hp <= 0) {
           enemies.splice(i, 1);
           state.kills += 1;
+          playSfx("kill");
           if (Math.random() < 0.28) {
             spawnItem(enemy.x, enemy.y);
           }
@@ -370,6 +531,7 @@ const handleCollisions = () => {
     const distance = Math.hypot(player.x - item.x, player.y - item.y);
     if (distance < player.radius + item.radius) {
       item.apply();
+      playSfx("item");
       floatingTexts.push({
         text: item.label,
         x: item.x,
@@ -403,7 +565,7 @@ const updateFloatingTexts = (dt) => {
 };
 
 const update = (dt) => {
-  if (state.gameOver) return;
+  if (state.scene !== "playing" || state.gameOver) return;
   state.time += dt;
   state.spawnTimer -= dt;
   const spawnInterval = Math.max(0.45, 2.3 - state.time / 35);
@@ -484,18 +646,6 @@ const drawFloatingTexts = () => {
   });
 };
 
-const drawHud = () => {
-  ctx.fillStyle = "#111827";
-  ctx.fillRect(6, 6, 120, 44);
-  ctx.fillStyle = "#ff6b6b";
-  ctx.fillRect(8, 8, 116 * (player.hp / player.maxHp), 6);
-  ctx.fillStyle = "#f8f9fa";
-  ctx.font = "8px monospace";
-  ctx.fillText(`HP ${Math.ceil(player.hp)}`, 10, 20);
-  ctx.fillText(`击败 ${state.kills}`, 10, 32);
-  ctx.fillText(`时间 ${state.time.toFixed(0)}s`, 10, 42);
-};
-
 const drawBackground = () => {
   ctx.fillStyle = "#10131f";
   ctx.fillRect(0, 0, world.width, world.height);
@@ -527,7 +677,6 @@ const render = () => {
   drawEnemies();
   drawPlayer();
   drawFloatingTexts();
-  drawHud();
   drawGameOver();
 };
 
@@ -535,13 +684,88 @@ const loop = (timestamp) => {
   const dt = Math.min(MAX_FRAME_DURATION, (timestamp - state.lastTime) / 1000);
   state.lastTime = timestamp;
   update(dt);
+  updateHudUi();
   render();
   requestAnimationFrame(loop);
 };
 
+const startGame = () => {
+  resetGame();
+  state.scene = "playing";
+  setOverlayVisible(startMenu, false);
+  setOverlayVisible(settingsMenu, false);
+  setOverlayVisible(pauseMenu, false);
+  resumeBgm();
+};
+
+const openSettings = (fromPause = false) => {
+  state.scene = "settings";
+  state.fromPause = fromPause;
+  setOverlayVisible(startMenu, false);
+  setOverlayVisible(pauseMenu, false);
+  setOverlayVisible(settingsMenu, true);
+};
+
+const closeSettings = () => {
+  setOverlayVisible(settingsMenu, false);
+  if (state.fromPause) {
+    state.scene = "paused";
+    setOverlayVisible(pauseMenu, true);
+    return;
+  }
+  state.scene = "menu";
+  setOverlayVisible(startMenu, true);
+};
+
+const pauseGame = () => {
+  if (state.scene !== "playing") return;
+  state.scene = "paused";
+  input.mouse.down = false;
+  setOverlayVisible(pauseMenu, true);
+  pauseBgm();
+};
+
+const resumeGame = () => {
+  if (state.scene !== "paused") return;
+  state.scene = "playing";
+  setOverlayVisible(settingsMenu, false);
+  setOverlayVisible(pauseMenu, false);
+  resumeBgm();
+};
+
+const backToMenu = () => {
+  state.scene = "menu";
+  input.keys.clear();
+  input.mouse.down = false;
+  resetGame();
+  setOverlayVisible(settingsMenu, false);
+  setOverlayVisible(pauseMenu, false);
+  setOverlayVisible(startMenu, true);
+  pauseBgm();
+};
+
+const updateMousePosition = (event) => {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  input.mouse.x = clamp((event.clientX - rect.left) * scaleX, 0, world.width);
+  input.mouse.y = clamp((event.clientY - rect.top) * scaleY, 0, world.height);
+};
+
 window.addEventListener("keydown", (event) => {
   const key = event.key.toLowerCase();
-  if (key === "r") {
+  if (key === "escape") {
+    event.preventDefault();
+    if (state.scene === "playing") {
+      pauseGame();
+    } else if (state.scene === "paused") {
+      resumeGame();
+    } else if (state.scene === "settings") {
+      closeSettings();
+    }
+    return;
+  }
+  if (key === "r" && state.scene === "playing") {
     resetGame();
     return;
   }
@@ -552,25 +776,74 @@ window.addEventListener("keyup", (event) => {
   input.keys.delete(event.key.toLowerCase());
 });
 
-canvas.addEventListener("mousemove", (event) => {
-  const rect = canvas.getBoundingClientRect();
-  const scaleX = canvas.width / rect.width;
-  const scaleY = canvas.height / rect.height;
-  input.mouse.x = (event.clientX - rect.left) * scaleX;
-  input.mouse.y = (event.clientY - rect.top) * scaleY;
-});
+window.addEventListener("mousemove", updateMousePosition);
 
-canvas.addEventListener("mousedown", () => {
-  input.mouse.down = true;
+window.addEventListener("mousedown", (event) => {
+  if (event.button === 0 && state.scene === "playing") {
+    updateMousePosition(event);
+    input.mouse.down = true;
+  }
 });
 
 window.addEventListener("mouseup", () => {
   input.mouse.down = false;
 });
 
-canvas.addEventListener("mouseleave", () => {
+window.addEventListener("blur", () => {
   input.mouse.down = false;
+  input.keys.clear();
 });
 
+startGameBtn.addEventListener("click", () => {
+  startGame();
+});
+
+openSettingsBtn.addEventListener("click", () => {
+  openSettings(false);
+});
+
+closeSettingsBtn.addEventListener("click", () => {
+  closeSettings();
+});
+
+resumeGameBtn.addEventListener("click", () => {
+  resumeGame();
+});
+
+backToMenuBtn.addEventListener("click", () => {
+  backToMenu();
+});
+
+const handleVolumeChange = (type, value) => {
+  const volume = clamp(Number(value), 0, 1);
+  if (type === "bgm") {
+    audioState.bgmVolume = volume;
+    applyVolumeSettings();
+  } else {
+    audioState.sfxVolume = volume;
+  }
+  syncVolumeSliders();
+};
+
+settingsBgmVolume.addEventListener("input", (event) => {
+  handleVolumeChange("bgm", event.target.value);
+});
+pauseBgmVolume.addEventListener("input", (event) => {
+  handleVolumeChange("bgm", event.target.value);
+});
+settingsSfxVolume.addEventListener("input", (event) => {
+  handleVolumeChange("sfx", event.target.value);
+});
+pauseSfxVolume.addEventListener("input", (event) => {
+  handleVolumeChange("sfx", event.target.value);
+});
+
+window.addEventListener("resize", resizeCanvas);
+
 resetGame();
+resizeCanvas();
+syncVolumeSliders();
+setOverlayVisible(startMenu, true);
+setOverlayVisible(settingsMenu, false);
+setOverlayVisible(pauseMenu, false);
 requestAnimationFrame(loop);
