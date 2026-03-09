@@ -12,6 +12,7 @@
         <div class="status-item">HP <span id="hudHp">100/100</span></div>
         <div class="status-item">击败 <span id="hudKills">0</span></div>
         <div class="status-item">时间 <span id="hudTime">0s</span></div>
+        <div class="status-item">装备 <span id="hudEquipments">无</span></div>
       </section>
       <div class="canvas-wrap">
         <canvas id="game" width="320" height="180" aria-label="耄耋像素大战"></canvas>
@@ -22,6 +23,20 @@
       <div class="panel">
         <h1>耄耋像素大战</h1>
         <p>WASD/方向键移动，鼠标指向并按住左键射击。</p>
+        <label
+          >背景
+          <select id="startBackgroundSelect">
+            <option value="brick">砖块</option>
+            <option value="dark">暗色</option>
+            <option value="light">亮色</option>
+          </select>
+        </label>
+        <fieldset class="equipment-group">
+          <legend>装备（最多3件）</legend>
+          <label><input type="checkbox" value="feather" class="equipment-option" checked /> 羽毛笔（Q主动）</label>
+          <label><input type="checkbox" value="guidance" class="equipment-option" checked /> 全面制导装置</label>
+          <label><input type="checkbox" value="shotgun" class="equipment-option" checked /> 霰弹枪</label>
+        </fieldset>
         <div class="menu-buttons">
           <button id="startGameBtn" type="button">开始</button>
           <button id="openSettingsBtn" type="button">设置</button>
@@ -32,6 +47,14 @@
     <section class="overlay" id="settingsMenu" aria-label="设置界面">
       <div class="panel">
         <h2>设置</h2>
+        <label
+          >背景
+          <select id="settingsBackgroundSelect">
+            <option value="brick">砖块</option>
+            <option value="dark">暗色</option>
+            <option value="light">亮色</option>
+          </select>
+        </label>
         <label>音乐音量 <input id="settingsBgmVolume" type="range" min="0" max="1" step="0.01" /></label>
         <label>音效音量 <input id="settingsSfxVolume" type="range" min="0" max="1" step="0.01" /></label>
         <button id="closeSettingsBtn" type="button">返回</button>
