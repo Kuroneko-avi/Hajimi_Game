@@ -26,9 +26,16 @@ ctx.imageSmoothingEnabled = false;
 const MAX_FRAME_DURATION = 1 / 30;
 const WORLD_SCALE = 1 / 3;
 const PLAYER_SPRITE_SIZE = 8;
-const PLAYER_HITBOX_HALF = (Math.sqrt(PLAYER_SPRITE_SIZE * PLAYER_SPRITE_SIZE * 0.5)) / 2;
+const PLAYER_HITBOX_EXTENT = PLAYER_SPRITE_SIZE / (2 * Math.sqrt(2));
 const ENEMY_DETECTION_RANGE = 160;
 const ENEMY_BULLET_LIFETIME = 2.2;
+const SHOTGUN_FIRE_RATE = 1;
+const SHOTGUN_MIN_PELLETS = 15;
+const SHOTGUN_MAX_PELLETS = 22;
+const SPREAD_SPEED_MULTIPLIER = 0.5;
+const GUIDANCE_TURN_RATE = 0.08;
+const FEATHER_DURATION = 5;
+const FEATHER_COOLDOWN = 30;
 
 const world = {
   width: canvas.width,
@@ -185,6 +192,7 @@ const sfxPools = Object.fromEntries(
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const randomRange = (min, max) => min + Math.random() * (max - min);
+const randomInt = (min, max) => Math.floor(randomRange(min, max + 1));
 const hasEquipment = (id) => player.equipment.includes(id);
 
 const getDifficulty = () => 1 + state.time / 60;
@@ -319,7 +327,10 @@ const updateHudUi = () => {
   hudKills.textContent = String(state.kills);
   hudTime.textContent = `${state.time.toFixed(0)}s`;
   const equipmentText = player.equipment.length
-    ? player.equipment.map((id) => equipmentTypes[id].name).join("、")
+    ? player.equipment
+        .filter((id) => equipmentTypes[id])
+        .map((id) => equipmentTypes[id].name)
+        .join("、")
     : "无";
   const featherText =
     player.equipment.includes("feather") && state.scene === "playing"
@@ -334,7 +345,9 @@ const resetGame = () => {
   player.speed = player.baseSpeed;
   player.hp = 100;
   player.maxHp = 100;
-  player.fireRate = player.equipment.includes("shotgun") ? 1 : player.baseFireRate;
+  player.fireRate = player.equipment.includes("shotgun")
+    ? SHOTGUN_FIRE_RATE
+    : player.baseFireRate;
   player.fireTimer = 0;
   player.bulletSpeed = 150;
   player.damage = 12;
@@ -445,7 +458,7 @@ const firePlayerBullet = () => {
     ? getNearestEnemy(player.x, player.y)
     : null;
   if (hasEquipment("shotgun")) {
-    const count = Math.floor(randomRange(15, 23));
+    const count = randomInt(SHOTGUN_MIN_PELLETS, SHOTGUN_MAX_PELLETS);
     for (let i = 0; i < count; i += 1) {
       const spread = randomRange(-Math.PI / 6, Math.PI / 6);
       const angle = baseAngle + spread;
@@ -500,7 +513,7 @@ const fireEnemyBullets = (enemy) => {
     return;
   }
   if (enemy.pattern === "spread") {
-    const spreadSpeed = speed * 0.5;
+    const spreadSpeed = speed * SPREAD_SPEED_MULTIPLIER;
     [-0.35, 0, 0.35].forEach((offset) => {
       const angle = baseAngle + offset;
       createBullet(
@@ -565,10 +578,10 @@ const updatePlayer = (dt) => {
   }
 };
 
-const updateBullets = (collection, dt) => {
+const updateBullets = (collection, dt, isPlayer = false) => {
   for (let i = collection.length - 1; i >= 0; i -= 1) {
     const bullet = collection[i];
-    if (collection === playerBullets && bullet.homingTarget && enemies.includes(bullet.homingTarget)) {
+    if (isPlayer && bullet.homingTarget && bullet.homingTarget.hp > 0) {
       const targetDx = bullet.homingTarget.x - bullet.x;
       const targetDy = bullet.homingTarget.y - bullet.y;
       const targetDistance = Math.hypot(targetDx, targetDy);
@@ -576,8 +589,8 @@ const updateBullets = (collection, dt) => {
         const speed = Math.hypot(bullet.vx, bullet.vy);
         const targetVx = (targetDx / targetDistance) * speed;
         const targetVy = (targetDy / targetDistance) * speed;
-        bullet.vx += (targetVx - bullet.vx) * 0.08;
-        bullet.vy += (targetVy - bullet.vy) * 0.08;
+        bullet.vx += (targetVx - bullet.vx) * GUIDANCE_TURN_RATE;
+        bullet.vy += (targetVy - bullet.vy) * GUIDANCE_TURN_RATE;
       }
     }
     bullet.x += bullet.vx * dt;
@@ -596,6 +609,10 @@ const updateBullets = (collection, dt) => {
     }
   }
 };
+
+const overlapsPlayerHitbox = (x, y, radius) =>
+  Math.abs(player.x - x) < PLAYER_HITBOX_EXTENT + radius &&
+  Math.abs(player.y - y) < PLAYER_HITBOX_EXTENT + radius;
 
 const updateEnemies = (dt) => {
   for (let i = enemies.length - 1; i >= 0; i -= 1) {
@@ -619,9 +636,7 @@ const updateEnemies = (dt) => {
     }
 
     enemy.contactTimer -= dt;
-    const overlapX = Math.abs(enemy.x - player.x) < enemy.radius + PLAYER_HITBOX_HALF;
-    const overlapY = Math.abs(enemy.y - player.y) < enemy.radius + PLAYER_HITBOX_HALF;
-    if (overlapX && overlapY && enemy.contactTimer <= 0) {
+    if (overlapsPlayerHitbox(enemy.x, enemy.y, enemy.radius) && enemy.contactTimer <= 0) {
       player.hp = Math.max(0, player.hp - enemy.damage);
       enemy.contactTimer = 0.7;
       const push = 8;
@@ -657,11 +672,7 @@ const handleCollisions = () => {
 
   for (let i = enemyBullets.length - 1; i >= 0; i -= 1) {
     const bullet = enemyBullets[i];
-    const overlapX =
-      Math.abs(player.x - bullet.x) < PLAYER_HITBOX_HALF + bullet.radius;
-    const overlapY =
-      Math.abs(player.y - bullet.y) < PLAYER_HITBOX_HALF + bullet.radius;
-    if (overlapX && overlapY) {
+    if (overlapsPlayerHitbox(bullet.x, bullet.y, bullet.radius)) {
       player.hp = Math.max(0, player.hp - bullet.damage);
       enemyBullets.splice(i, 1);
     }
@@ -745,7 +756,7 @@ const update = (dt) => {
     state.spawnTimer = spawnInterval;
   }
   updatePlayer(dt);
-  updateBullets(playerBullets, dt);
+  updateBullets(playerBullets, dt, true);
   updateBullets(enemyBullets, dt);
   updateEnemies(dt);
   updateItems(dt);
@@ -956,8 +967,8 @@ const activateFeather = () => {
   if (!hasEquipment("feather")) return;
   if (state.scene !== "playing" || state.gameOver) return;
   if (player.featherCooldown > 0) return;
-  player.featherBuffTimer = 5;
-  player.featherCooldown = 30;
+  player.featherBuffTimer = FEATHER_DURATION;
+  player.featherCooldown = FEATHER_COOLDOWN;
   floatingTexts.push({
     text: "疾行!",
     x: player.x - 2,
