@@ -7,19 +7,48 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <main>
-      <header class="header">
-        <h1>耄耋像素大战</h1>
-        <p>WASD/方向键移动，鼠标指向并按住左键射击，拾取道具强化自己。</p>
-      </header>
-      <canvas id="game" width="320" height="180" aria-label="耄耋像素大战"></canvas>
-      <section class="legend">
-        <div><span class="legend-dot health"></span>生命恢复</div>
-        <div><span class="legend-dot speed"></span>移动速度</div>
-        <div><span class="legend-dot fire"></span>射速提升</div>
-        <div><span class="legend-dot damage"></span>弹幕伤害</div>
+    <main class="game-shell">
+      <section class="status-bar" aria-live="polite">
+        <div class="status-item">HP <span id="hudHp">100/100</span></div>
+        <div class="status-item">击败 <span id="hudKills">0</span></div>
+        <div class="status-item">时间 <span id="hudTime">0s</span></div>
       </section>
+      <div class="canvas-wrap">
+        <canvas id="game" width="320" height="180" aria-label="耄耋像素大战"></canvas>
+      </div>
     </main>
+
+    <section class="overlay visible" id="startMenu" aria-label="开始界面">
+      <div class="panel">
+        <h1>耄耋像素大战</h1>
+        <p>WASD/方向键移动，鼠标指向并按住左键射击。</p>
+        <div class="menu-buttons">
+          <button id="startGameBtn" type="button">开始</button>
+          <button id="openSettingsBtn" type="button">设置</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="overlay" id="settingsMenu" aria-label="设置界面">
+      <div class="panel">
+        <h2>设置</h2>
+        <label>音乐音量 <input id="settingsBgmVolume" type="range" min="0" max="1" step="0.01" /></label>
+        <label>音效音量 <input id="settingsSfxVolume" type="range" min="0" max="1" step="0.01" /></label>
+        <button id="closeSettingsBtn" type="button">返回</button>
+      </div>
+    </section>
+
+    <section class="overlay" id="pauseMenu" aria-label="暂停菜单">
+      <div class="panel">
+        <h2>已暂停</h2>
+        <label>音乐音量 <input id="pauseBgmVolume" type="range" min="0" max="1" step="0.01" /></label>
+        <label>音效音量 <input id="pauseSfxVolume" type="range" min="0" max="1" step="0.01" /></label>
+        <div class="menu-buttons">
+          <button id="resumeGameBtn" type="button">返回游戏</button>
+          <button id="backToMenuBtn" type="button">返回开始界面</button>
+        </div>
+      </div>
+    </section>
     <script src="game.js"></script>
   </body>
 </html>
