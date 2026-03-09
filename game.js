@@ -3,6 +3,7 @@ const ctx = canvas.getContext("2d");
 const hudHp = document.getElementById("hudHp");
 const hudKills = document.getElementById("hudKills");
 const hudTime = document.getElementById("hudTime");
+const hudEquipments = document.getElementById("hudEquipments");
 const startMenu = document.getElementById("startMenu");
 const settingsMenu = document.getElementById("settingsMenu");
 const pauseMenu = document.getElementById("pauseMenu");
@@ -15,9 +16,19 @@ const settingsBgmVolume = document.getElementById("settingsBgmVolume");
 const settingsSfxVolume = document.getElementById("settingsSfxVolume");
 const pauseBgmVolume = document.getElementById("pauseBgmVolume");
 const pauseSfxVolume = document.getElementById("pauseSfxVolume");
+const startBackgroundSelect = document.getElementById("startBackgroundSelect");
+const settingsBackgroundSelect = document.getElementById("settingsBackgroundSelect");
+const equipmentOptions = Array.from(
+  document.querySelectorAll(".equipment-option")
+);
 ctx.imageSmoothingEnabled = false;
 
 const MAX_FRAME_DURATION = 1 / 30;
+const WORLD_SCALE = 1 / 3;
+const PLAYER_SPRITE_SIZE = 8;
+const PLAYER_HITBOX_HALF = (Math.sqrt(PLAYER_SPRITE_SIZE * PLAYER_SPRITE_SIZE * 0.5)) / 2;
+const ENEMY_DETECTION_RANGE = 160;
+const ENEMY_BULLET_LIFETIME = 2.2;
 
 const world = {
   width: canvas.width,
@@ -33,13 +44,18 @@ const player = {
   x: world.width / 2,
   y: world.height / 2,
   radius: 6,
-  speed: 70,
+  speed: 84,
+  baseSpeed: 84,
   hp: 100,
   maxHp: 100,
   fireRate: 0.22,
+  baseFireRate: 0.22,
   fireTimer: 0,
   bulletSpeed: 150,
   damage: 12,
+  equipment: [],
+  featherBuffTimer: 0,
+  featherCooldown: 0,
 };
 
 const state = {
@@ -50,6 +66,7 @@ const state = {
   scene: "menu",
   fromPause: false,
   lastTime: performance.now(),
+  background: "brick",
 };
 
 const enemyTypes = [
@@ -84,6 +101,12 @@ const enemyTypes = [
     pattern: "burst",
   },
 ];
+
+const equipmentTypes = {
+  feather: { id: "feather", name: "羽毛笔" },
+  guidance: { id: "guidance", name: "全面制导装置" },
+  shotgun: { id: "shotgun", name: "霰弹枪" },
+};
 
 const itemTypes = [
   {
@@ -126,6 +149,7 @@ const playerBullets = [];
 const enemyBullets = [];
 const items = [];
 const floatingTexts = [];
+const hitParticles = [];
 
 const audioState = {
   bgmVolume: 0.5,
@@ -161,8 +185,31 @@ const sfxPools = Object.fromEntries(
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const randomRange = (min, max) => min + Math.random() * (max - min);
+const hasEquipment = (id) => player.equipment.includes(id);
 
 const getDifficulty = () => 1 + state.time / 60;
+
+const syncBackgroundSelectors = () => {
+  startBackgroundSelect.value = state.background;
+  settingsBackgroundSelect.value = state.background;
+};
+
+const setBackground = (value) => {
+  if (!["brick", "dark", "light"].includes(value)) return;
+  state.background = value;
+  syncBackgroundSelectors();
+};
+
+const updateSelectedEquipments = () => {
+  const selected = equipmentOptions.filter((option) => option.checked);
+  if (selected.length > 3) {
+    const last = selected[selected.length - 1];
+    last.checked = false;
+  }
+  player.equipment = equipmentOptions
+    .filter((option) => option.checked)
+    .map((option) => option.value);
+};
 
 const setOverlayVisible = (element, visible) => {
   element.classList.toggle("visible", visible);
@@ -239,8 +286,8 @@ const resumeBgm = () => {
 
 const resizeCanvas = () => {
   const rect = canvas.getBoundingClientRect();
-  const width = Math.max(320, Math.floor(rect.width));
-  const height = Math.max(180, Math.floor(rect.height));
+  const width = Math.max(160, Math.floor(rect.width * WORLD_SCALE));
+  const height = Math.max(90, Math.floor(rect.height * WORLD_SCALE));
   canvas.width = width;
   canvas.height = height;
   world.width = width;
@@ -271,18 +318,28 @@ const updateHudUi = () => {
   hudHp.textContent = `${Math.ceil(player.hp)}/${Math.ceil(player.maxHp)}`;
   hudKills.textContent = String(state.kills);
   hudTime.textContent = `${state.time.toFixed(0)}s`;
+  const equipmentText = player.equipment.length
+    ? player.equipment.map((id) => equipmentTypes[id].name).join("、")
+    : "无";
+  const featherText =
+    player.equipment.includes("feather") && state.scene === "playing"
+      ? ` (${player.featherCooldown > 0 ? `Q ${player.featherCooldown.toFixed(0)}s` : "Q就绪"})`
+      : "";
+  hudEquipments.textContent = `${equipmentText}${featherText}`;
 };
 
 const resetGame = () => {
   player.x = world.width / 2;
   player.y = world.height / 2;
-  player.speed = 70;
+  player.speed = player.baseSpeed;
   player.hp = 100;
   player.maxHp = 100;
-  player.fireRate = 0.22;
+  player.fireRate = player.equipment.includes("shotgun") ? 1 : player.baseFireRate;
   player.fireTimer = 0;
   player.bulletSpeed = 150;
   player.damage = 12;
+  player.featherBuffTimer = 0;
+  player.featherCooldown = 0;
   state.time = 0;
   state.spawnTimer = 0;
   state.kills = 0;
@@ -292,6 +349,7 @@ const resetGame = () => {
   enemyBullets.length = 0;
   items.length = 0;
   floatingTexts.length = 0;
+  hitParticles.length = 0;
 };
 
 const spawnEnemy = () => {
@@ -349,8 +407,32 @@ const spawnItem = (x, y) => {
   });
 };
 
-const createBullet = (collection, x, y, vx, vy, radius, color, damage) => {
-  collection.push({ x, y, vx, vy, radius, color, damage });
+const getNearestEnemy = (x, y) => {
+  let nearest = null;
+  let nearestDistance = Infinity;
+  enemies.forEach((enemy) => {
+    const distance = Math.hypot(enemy.x - x, enemy.y - y);
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      nearest = enemy;
+    }
+  });
+  return nearest;
+};
+
+const createBullet = (
+  collection,
+  x,
+  y,
+  vx,
+  vy,
+  radius,
+  color,
+  damage,
+  lifetime = null,
+  homingTarget = null
+) => {
+  collection.push({ x, y, vx, vy, radius, color, damage, lifetime, homingTarget });
 };
 
 const firePlayerBullet = () => {
@@ -358,18 +440,42 @@ const firePlayerBullet = () => {
   const dy = input.mouse.y - player.y;
   const distance = Math.hypot(dx, dy);
   if (distance < 1) return;
-  const vx = (dx / distance) * player.bulletSpeed;
-  const vy = (dy / distance) * player.bulletSpeed;
-  createBullet(
-    playerBullets,
-    player.x,
-    player.y,
-    vx,
-    vy,
-    2,
-    "#a5d8ff",
-    player.damage
-  );
+  const baseAngle = Math.atan2(dy, dx);
+  const guidanceTarget = hasEquipment("guidance")
+    ? getNearestEnemy(player.x, player.y)
+    : null;
+  if (hasEquipment("shotgun")) {
+    const count = Math.floor(randomRange(15, 23));
+    for (let i = 0; i < count; i += 1) {
+      const spread = randomRange(-Math.PI / 6, Math.PI / 6);
+      const angle = baseAngle + spread;
+      createBullet(
+        playerBullets,
+        player.x,
+        player.y,
+        Math.cos(angle) * player.bulletSpeed,
+        Math.sin(angle) * player.bulletSpeed,
+        2,
+        "#a5d8ff",
+        player.damage,
+        null,
+        guidanceTarget
+      );
+    }
+  } else {
+    createBullet(
+      playerBullets,
+      player.x,
+      player.y,
+      Math.cos(baseAngle) * player.bulletSpeed,
+      Math.sin(baseAngle) * player.bulletSpeed,
+      2,
+      "#a5d8ff",
+      player.damage,
+      null,
+      guidanceTarget
+    );
+  }
   playSfx("shoot");
 };
 
@@ -388,22 +494,25 @@ const fireEnemyBullets = (enemy) => {
       Math.sin(baseAngle) * speed,
       2,
       "#ff8787",
-      damage
+      damage,
+      ENEMY_BULLET_LIFETIME
     );
     return;
   }
   if (enemy.pattern === "spread") {
+    const spreadSpeed = speed * 0.5;
     [-0.35, 0, 0.35].forEach((offset) => {
       const angle = baseAngle + offset;
       createBullet(
         enemyBullets,
         enemy.x,
         enemy.y,
-        Math.cos(angle) * speed,
-        Math.sin(angle) * speed,
+        Math.cos(angle) * spreadSpeed,
+        Math.sin(angle) * spreadSpeed,
         2,
         "#ffd43b",
-        damage
+        damage,
+        ENEMY_BULLET_LIFETIME
       );
     });
     return;
@@ -418,12 +527,22 @@ const fireEnemyBullets = (enemy) => {
       Math.sin(angle) * speed,
       2,
       "#63e6be",
-      damage
+      damage,
+      ENEMY_BULLET_LIFETIME
     );
   }
 };
 
 const updatePlayer = (dt) => {
+  if (player.featherCooldown > 0) {
+    player.featherCooldown = Math.max(0, player.featherCooldown - dt);
+  }
+  if (player.featherBuffTimer > 0) {
+    player.featherBuffTimer = Math.max(0, player.featherBuffTimer - dt);
+  }
+  const currentSpeed =
+    player.speed * (player.featherBuffTimer > 0 ? 1.5 : 1);
+
   let moveX = 0;
   let moveY = 0;
   if (input.keys.has("w") || input.keys.has("arrowup")) moveY -= 1;
@@ -432,7 +551,7 @@ const updatePlayer = (dt) => {
   if (input.keys.has("d") || input.keys.has("arrowright")) moveX += 1;
   const moveMagnitude = Math.hypot(moveX, moveY);
   if (moveMagnitude > 0) {
-    const speed = player.speed * dt;
+    const speed = currentSpeed * dt;
     player.x += (moveX / moveMagnitude) * speed;
     player.y += (moveY / moveMagnitude) * speed;
   }
@@ -449,9 +568,25 @@ const updatePlayer = (dt) => {
 const updateBullets = (collection, dt) => {
   for (let i = collection.length - 1; i >= 0; i -= 1) {
     const bullet = collection[i];
+    if (collection === playerBullets && bullet.homingTarget && enemies.includes(bullet.homingTarget)) {
+      const targetDx = bullet.homingTarget.x - bullet.x;
+      const targetDy = bullet.homingTarget.y - bullet.y;
+      const targetDistance = Math.hypot(targetDx, targetDy);
+      if (targetDistance > 0) {
+        const speed = Math.hypot(bullet.vx, bullet.vy);
+        const targetVx = (targetDx / targetDistance) * speed;
+        const targetVy = (targetDy / targetDistance) * speed;
+        bullet.vx += (targetVx - bullet.vx) * 0.08;
+        bullet.vy += (targetVy - bullet.vy) * 0.08;
+      }
+    }
     bullet.x += bullet.vx * dt;
     bullet.y += bullet.vy * dt;
+    if (typeof bullet.lifetime === "number") {
+      bullet.lifetime -= dt;
+    }
     if (
+      (typeof bullet.lifetime === "number" && bullet.lifetime <= 0) ||
       bullet.x < -10 ||
       bullet.x > world.width + 10 ||
       bullet.y < -10 ||
@@ -470,13 +605,13 @@ const updateEnemies = (dt) => {
     const distance = Math.hypot(dx, dy);
     const directionX = distance === 0 ? 0 : dx / distance;
     const directionY = distance === 0 ? 0 : dy / distance;
-    if (distance > 0) {
+    if (distance > 0 && distance < ENEMY_DETECTION_RANGE) {
       enemy.x += directionX * enemy.speed * dt;
       enemy.y += directionY * enemy.speed * dt;
     }
 
     enemy.bulletTimer -= dt;
-    if (enemy.bulletTimer <= 0) {
+    if (enemy.bulletTimer <= 0 && distance < ENEMY_DETECTION_RANGE) {
       fireEnemyBullets(enemy);
       const difficulty = getDifficulty();
       enemy.bulletTimer =
@@ -484,7 +619,9 @@ const updateEnemies = (dt) => {
     }
 
     enemy.contactTimer -= dt;
-    if (distance < enemy.radius + player.radius && enemy.contactTimer <= 0) {
+    const overlapX = Math.abs(enemy.x - player.x) < enemy.radius + PLAYER_HITBOX_HALF;
+    const overlapY = Math.abs(enemy.y - player.y) < enemy.radius + PLAYER_HITBOX_HALF;
+    if (overlapX && overlapY && enemy.contactTimer <= 0) {
       player.hp = Math.max(0, player.hp - enemy.damage);
       enemy.contactTimer = 0.7;
       const push = 8;
@@ -504,6 +641,7 @@ const handleCollisions = () => {
         enemy.hp -= bullet.damage;
         playerBullets.splice(j, 1);
         playSfx("hit");
+        spawnHitParticles(bullet.x, bullet.y, "#a5d8ff");
         if (enemy.hp <= 0) {
           enemies.splice(i, 1);
           state.kills += 1;
@@ -519,8 +657,11 @@ const handleCollisions = () => {
 
   for (let i = enemyBullets.length - 1; i >= 0; i -= 1) {
     const bullet = enemyBullets[i];
-    const distance = Math.hypot(player.x - bullet.x, player.y - bullet.y);
-    if (distance < player.radius + bullet.radius) {
+    const overlapX =
+      Math.abs(player.x - bullet.x) < PLAYER_HITBOX_HALF + bullet.radius;
+    const overlapY =
+      Math.abs(player.y - bullet.y) < PLAYER_HITBOX_HALF + bullet.radius;
+    if (overlapX && overlapY) {
       player.hp = Math.max(0, player.hp - bullet.damage);
       enemyBullets.splice(i, 1);
     }
@@ -564,6 +705,36 @@ const updateFloatingTexts = (dt) => {
   }
 };
 
+const spawnHitParticles = (x, y, color) => {
+  for (let i = 0; i < 8; i += 1) {
+    const angle = randomRange(0, Math.PI * 2);
+    const speed = randomRange(16, 44);
+    hitParticles.push({
+      x,
+      y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: randomRange(0.14, 0.3),
+      maxLife: 0.3,
+      color,
+    });
+  }
+};
+
+const updateHitParticles = (dt) => {
+  for (let i = hitParticles.length - 1; i >= 0; i -= 1) {
+    const particle = hitParticles[i];
+    particle.life -= dt;
+    particle.x += particle.vx * dt;
+    particle.y += particle.vy * dt;
+    particle.vx *= 0.9;
+    particle.vy *= 0.9;
+    if (particle.life <= 0) {
+      hitParticles.splice(i, 1);
+    }
+  }
+};
+
 const update = (dt) => {
   if (state.scene !== "playing" || state.gameOver) return;
   state.time += dt;
@@ -579,6 +750,7 @@ const update = (dt) => {
   updateEnemies(dt);
   updateItems(dt);
   updateFloatingTexts(dt);
+  updateHitParticles(dt);
   handleCollisions();
 
   if (player.hp <= 0) {
@@ -639,7 +811,7 @@ const drawItems = () => {
 };
 
 const drawFloatingTexts = () => {
-  ctx.font = "8px monospace";
+  ctx.font = "11px monospace";
   ctx.fillStyle = "#f8f9fa";
   floatingTexts.forEach((text) => {
     ctx.fillText(text.text, text.x - 6, text.y);
@@ -647,15 +819,50 @@ const drawFloatingTexts = () => {
 };
 
 const drawBackground = () => {
-  ctx.fillStyle = "#10131f";
+  if (state.background === "light") {
+    ctx.fillStyle = "#e9ecef";
+    ctx.fillRect(0, 0, world.width, world.height);
+    ctx.fillStyle = "#ced4da";
+    for (let x = 0; x < world.width; x += 20) {
+      ctx.fillRect(x, 0, 1, world.height);
+    }
+    for (let y = 0; y < world.height; y += 20) {
+      ctx.fillRect(0, y, world.width, 1);
+    }
+    return;
+  }
+  if (state.background === "dark") {
+    ctx.fillStyle = "#10131f";
+    ctx.fillRect(0, 0, world.width, world.height);
+    ctx.fillStyle = "#1b2233";
+    for (let x = 0; x < world.width; x += 16) {
+      ctx.fillRect(x, 0, 1, world.height);
+    }
+    for (let y = 0; y < world.height; y += 16) {
+      ctx.fillRect(0, y, world.width, 1);
+    }
+    return;
+  }
+  ctx.fillStyle = "#2d1f16";
   ctx.fillRect(0, 0, world.width, world.height);
-  ctx.fillStyle = "#1b2233";
-  for (let x = 0; x < world.width; x += 16) {
-    ctx.fillRect(x, 0, 1, world.height);
+  for (let y = 0; y < world.height; y += 12) {
+    const shift = y % 24 === 0 ? 0 : 6;
+    for (let x = -shift; x < world.width; x += 12) {
+      ctx.fillStyle = (x + y) % 24 === 0 ? "#5c4033" : "#4a3328";
+      ctx.fillRect(x, y, 12, 12);
+      ctx.strokeStyle = "#2b1b12";
+      ctx.strokeRect(x, y, 12, 12);
+    }
   }
-  for (let y = 0; y < world.height; y += 16) {
-    ctx.fillRect(0, y, world.width, 1);
-  }
+};
+
+const drawHitParticles = () => {
+  hitParticles.forEach((particle) => {
+    ctx.globalAlpha = clamp(particle.life / particle.maxLife, 0, 1);
+    ctx.fillStyle = particle.color;
+    ctx.fillRect(particle.x, particle.y, 2, 2);
+  });
+  ctx.globalAlpha = 1;
 };
 
 const drawGameOver = () => {
@@ -663,10 +870,10 @@ const drawGameOver = () => {
   ctx.fillStyle = "rgba(15, 17, 23, 0.7)";
   ctx.fillRect(0, 0, world.width, world.height);
   ctx.fillStyle = "#f8f9fa";
+  ctx.font = "18px monospace";
+  ctx.fillText("游戏结束", world.width / 2 - 38, world.height / 2 - 8);
   ctx.font = "12px monospace";
-  ctx.fillText("游戏结束", world.width / 2 - 24, world.height / 2 - 4);
-  ctx.font = "8px monospace";
-  ctx.fillText("按 R 重新开始", world.width / 2 - 36, world.height / 2 + 12);
+  ctx.fillText("按 R 重新开始", world.width / 2 - 52, world.height / 2 + 16);
 };
 
 const render = () => {
@@ -676,6 +883,7 @@ const render = () => {
   drawBullets(enemyBullets);
   drawEnemies();
   drawPlayer();
+  drawHitParticles();
   drawFloatingTexts();
   drawGameOver();
 };
@@ -744,6 +952,20 @@ const backToMenu = () => {
   pauseBgm();
 };
 
+const activateFeather = () => {
+  if (!hasEquipment("feather")) return;
+  if (state.scene !== "playing" || state.gameOver) return;
+  if (player.featherCooldown > 0) return;
+  player.featherBuffTimer = 5;
+  player.featherCooldown = 30;
+  floatingTexts.push({
+    text: "疾行!",
+    x: player.x - 2,
+    y: player.y - 8,
+    time: 0.8,
+  });
+};
+
 const updateMousePosition = (event) => {
   const rect = canvas.getBoundingClientRect();
   const scaleX = canvas.width / rect.width;
@@ -754,7 +976,7 @@ const updateMousePosition = (event) => {
 
 window.addEventListener("keydown", (event) => {
   const key = event.key.toLowerCase();
-  if (key === "escape") {
+  if (key === "escape" || key === "esc") {
     event.preventDefault();
     if (state.scene === "playing") {
       pauseGame();
@@ -767,6 +989,10 @@ window.addEventListener("keydown", (event) => {
   }
   if (key === "r" && state.scene === "playing") {
     resetGame();
+    return;
+  }
+  if (key === "q") {
+    activateFeather();
     return;
   }
   input.keys.add(key);
@@ -795,6 +1021,7 @@ window.addEventListener("blur", () => {
 });
 
 startGameBtn.addEventListener("click", () => {
+  updateSelectedEquipments();
   startGame();
 });
 
@@ -838,11 +1065,25 @@ pauseSfxVolume.addEventListener("input", (event) => {
   handleVolumeChange("sfx", event.target.value);
 });
 
+startBackgroundSelect.addEventListener("change", (event) => {
+  setBackground(event.target.value);
+});
+
+settingsBackgroundSelect.addEventListener("change", (event) => {
+  setBackground(event.target.value);
+});
+
+equipmentOptions.forEach((option) => {
+  option.addEventListener("change", updateSelectedEquipments);
+});
+
 window.addEventListener("resize", resizeCanvas);
 
 resetGame();
 resizeCanvas();
 syncVolumeSliders();
+syncBackgroundSelectors();
+updateSelectedEquipments();
 setOverlayVisible(startMenu, true);
 setOverlayVisible(settingsMenu, false);
 setOverlayVisible(pauseMenu, false);

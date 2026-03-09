@@ -28,15 +28,15 @@ body {
   flex-wrap: wrap;
   gap: 12px;
   align-items: center;
-  min-height: 40px;
-  padding: 8px 12px;
+  min-height: 54px;
+  padding: 10px 14px;
   border-bottom: 2px solid #2d3448;
   background: #0f1117;
-  font-size: 12px;
+  font-size: 16px;
 }
 
 .status-item {
-  padding: 2px 8px;
+  padding: 4px 10px;
   border: 1px solid #2d3448;
   border-radius: 3px;
   background: #161c2c;
@@ -73,10 +73,10 @@ canvas {
 .panel {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  min-width: 260px;
+  gap: 14px;
+  min-width: 320px;
   max-width: 90vw;
-  padding: 18px;
+  padding: 22px;
   border: 2px solid #3c4967;
   background: #121826;
 }
@@ -87,11 +87,46 @@ canvas {
   margin: 0;
 }
 
+.panel h1 {
+  font-size: 32px;
+}
+
+.panel h2 {
+  font-size: 26px;
+}
+
+.panel p {
+  font-size: 18px;
+}
+
 .panel label {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  font-size: 13px;
+  font-size: 17px;
+}
+
+.panel select,
+.panel input[type="range"] {
+  min-height: 30px;
+}
+
+.equipment-group {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #596b96;
+}
+
+.equipment-group legend {
+  padding: 0 6px;
+  font-size: 16px;
+}
+
+.equipment-group label {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
 }
 
 .menu-buttons {
@@ -104,7 +139,8 @@ button {
   border: 1px solid #596b96;
   background: #1d2740;
   color: #f8f9fa;
-  padding: 8px 12px;
+  padding: 10px 16px;
+  font-size: 17px;
   font-family: inherit;
   cursor: pointer;
 }
