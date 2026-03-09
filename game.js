@@ -148,6 +148,17 @@ const sfxMap = {
   item: "assets/sfx/item.wav",
 };
 
+const sfxPools = Object.fromEntries(
+  Object.entries(sfxMap).map(([name, src]) => {
+    const pool = Array.from({ length: 6 }, () => {
+      const audio = new Audio(src);
+      audio.preload = "auto";
+      return audio;
+    });
+    return [name, { index: 0, pool }];
+  })
+);
+
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const randomRange = (min, max) => min + Math.random() * (max - min);
 
@@ -171,9 +182,11 @@ const applyVolumeSettings = () => {
 };
 
 const playSfx = (name) => {
-  const src = sfxMap[name];
-  if (!src || audioState.sfxVolume <= 0) return;
-  const sound = new Audio(src);
+  const entry = sfxPools[name];
+  if (!entry || audioState.sfxVolume <= 0) return;
+  const sound = entry.pool[entry.index];
+  entry.index = (entry.index + 1) % entry.pool.length;
+  sound.currentTime = 0;
   sound.volume = audioState.sfxVolume;
   sound.play().catch(() => {});
 };
@@ -236,6 +249,22 @@ const resizeCanvas = () => {
   player.y = clamp(player.y, player.radius, world.height - player.radius);
   input.mouse.x = clamp(input.mouse.x, 0, world.width);
   input.mouse.y = clamp(input.mouse.y, 0, world.height);
+  enemies.forEach((enemy) => {
+    enemy.x = clamp(enemy.x, -12, world.width + 12);
+    enemy.y = clamp(enemy.y, -12, world.height + 12);
+  });
+  items.forEach((item) => {
+    item.x = clamp(item.x, item.radius, world.width - item.radius);
+    item.y = clamp(item.y, item.radius, world.height - item.radius);
+  });
+  playerBullets.forEach((bullet) => {
+    bullet.x = clamp(bullet.x, -10, world.width + 10);
+    bullet.y = clamp(bullet.y, -10, world.height + 10);
+  });
+  enemyBullets.forEach((bullet) => {
+    bullet.x = clamp(bullet.x, -10, world.width + 10);
+    bullet.y = clamp(bullet.y, -10, world.height + 10);
+  });
 };
 
 const updateHudUi = () => {
@@ -669,7 +698,8 @@ const startGame = () => {
   resumeBgm();
 };
 
-const openSettings = (fromPause) => {
+const openSettings = (fromPause = false) => {
+  state.scene = "settings";
   state.fromPause = fromPause;
   setOverlayVisible(startMenu, false);
   setOverlayVisible(pauseMenu, false);
@@ -769,7 +799,6 @@ startGameBtn.addEventListener("click", () => {
 });
 
 openSettingsBtn.addEventListener("click", () => {
-  state.scene = "settings";
   openSettings(false);
 });
 
