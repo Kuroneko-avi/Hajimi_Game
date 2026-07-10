@@ -68,7 +68,19 @@
         <label>音效音量 <input id="pauseSfxVolume" type="range" min="0" max="1" step="0.01" /></label>
         <div class="menu-buttons">
           <button id="resumeGameBtn" type="button">返回游戏</button>
+          <button id="restartFromPauseBtn" type="button">重新开始</button>
           <button id="backToMenuBtn" type="button">返回开始界面</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="overlay" id="gameOverMenu" aria-label="游戏结束菜单">
+      <div class="panel">
+        <h2>游戏结束</h2>
+        <p id="gameOverSummary"></p>
+        <div class="menu-buttons">
+          <button id="restartGameBtn" type="button">重新开始</button>
+          <button id="gameOverBackToMenuBtn" type="button">返回开始界面</button>
         </div>
       </div>
     </section>

@@ -7,11 +7,16 @@ const hudEquipments = document.getElementById("hudEquipments");
 const startMenu = document.getElementById("startMenu");
 const settingsMenu = document.getElementById("settingsMenu");
 const pauseMenu = document.getElementById("pauseMenu");
+const gameOverMenu = document.getElementById("gameOverMenu");
 const startGameBtn = document.getElementById("startGameBtn");
 const openSettingsBtn = document.getElementById("openSettingsBtn");
 const closeSettingsBtn = document.getElementById("closeSettingsBtn");
 const resumeGameBtn = document.getElementById("resumeGameBtn");
+const restartFromPauseBtn = document.getElementById("restartFromPauseBtn");
 const backToMenuBtn = document.getElementById("backToMenuBtn");
+const restartGameBtn = document.getElementById("restartGameBtn");
+const gameOverBackToMenuBtn = document.getElementById("gameOverBackToMenuBtn");
+const gameOverSummary = document.getElementById("gameOverSummary");
 const settingsBgmVolume = document.getElementById("settingsBgmVolume");
 const settingsSfxVolume = document.getElementById("settingsSfxVolume");
 const pauseBgmVolume = document.getElementById("pauseBgmVolume");
@@ -32,6 +37,11 @@ const ENEMY_BULLET_LIFETIME = 2.2;
 const SHOTGUN_FIRE_RATE = 1;
 const SHOTGUN_MIN_PELLETS = 15;
 const SHOTGUN_MAX_PELLETS = 22;
+const SHOTGUN_SPREAD_HALF_ANGLE = Math.PI / 4;
+const SHOTGUN_MIN_SPEED_MULTIPLIER = 0.7;
+const SHOTGUN_MAX_SPEED_MULTIPLIER = 1.3;
+const FIRE_RATE_UPGRADE_MULTIPLIER = 0.9;
+const MIN_FIRE_RATE = 0.08;
 const SPREAD_SPEED_MULTIPLIER = 0.5;
 const GUIDANCE_TURN_RATE = 0.08;
 const FEATHER_DURATION = 5;
@@ -85,6 +95,7 @@ const enemyTypes = [
     hp: 40,
     bulletCooldown: 1.6,
     bulletSpeed: 70,
+    bulletRadius: 2,
     pattern: "single",
   },
   {
@@ -95,16 +106,18 @@ const enemyTypes = [
     hp: 28,
     bulletCooldown: 1.2,
     bulletSpeed: 85,
+    bulletRadius: 2,
     pattern: "spread",
   },
   {
     id: "guardian",
     color: "#63e6be",
     radius: 8,
-    speed: 20,
+    speed: 16,
     hp: 70,
     bulletCooldown: 2.4,
-    bulletSpeed: 60,
+    bulletSpeed: 48,
+    bulletRadius: 3,
     pattern: "burst",
   },
 ];
@@ -119,6 +132,7 @@ const itemTypes = [
   {
     id: "health",
     color: "#ff6b6b",
+    emoji: "❤️",
     label: "生命+",
     apply: () => {
       player.maxHp += 8;
@@ -128,6 +142,7 @@ const itemTypes = [
   {
     id: "speed",
     color: "#4dabf7",
+    emoji: "👟",
     label: "速度+",
     apply: () => {
       player.speed += 6;
@@ -136,14 +151,19 @@ const itemTypes = [
   {
     id: "fire",
     color: "#ffd43b",
+    emoji: "⚡",
     label: "射速+",
     apply: () => {
-      player.fireRate = Math.max(0.08, player.fireRate - 0.02);
+      player.fireRate = Math.max(
+        MIN_FIRE_RATE,
+        player.fireRate * FIRE_RATE_UPGRADE_MULTIPLIER
+      );
     },
   },
   {
     id: "damage",
     color: "#b197fc",
+    emoji: "⚔️",
     label: "伤害+",
     apply: () => {
       player.damage += 3;
@@ -192,7 +212,8 @@ const sfxPools = Object.fromEntries(
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const randomRange = (min, max) => min + Math.random() * (max - min);
-const randomInt = (min, max) => Math.floor(randomRange(min, max + 1));
+const randomInt = (min, max) =>
+  min + Math.floor(Math.random() * (max - min + 1));
 const hasEquipment = (id) => player.equipment.includes(id);
 
 const getDifficulty = () => 1 + state.time / 60;
@@ -401,6 +422,7 @@ const spawnEnemy = () => {
     bulletCooldown: type.bulletCooldown,
     bulletTimer: randomRange(0, type.bulletCooldown),
     bulletSpeed: type.bulletSpeed * (1 + state.time / 200),
+    bulletRadius: type.bulletRadius,
     pattern: type.pattern,
     contactTimer: 0,
     damage: 6 * difficulty,
@@ -412,8 +434,9 @@ const spawnItem = (x, y) => {
   items.push({
     x,
     y,
-    radius: 4,
+    radius: 6,
     color: type.color,
+    emoji: type.emoji,
     label: type.label,
     apply: type.apply,
     lifetime: 12,
@@ -445,7 +468,18 @@ const createBullet = (
   lifetime = null,
   homingTarget = null
 ) => {
-  collection.push({ x, y, vx, vy, radius, color, damage, lifetime, homingTarget });
+  collection.push({
+    x,
+    y,
+    vx,
+    vy,
+    radius,
+    color,
+    damage,
+    lifetime,
+    homingTarget,
+    homingSpeed: homingTarget ? Math.hypot(vx, vy) : null,
+  });
 };
 
 const firePlayerBullet = () => {
@@ -460,14 +494,23 @@ const firePlayerBullet = () => {
   if (hasEquipment("shotgun")) {
     const count = randomInt(SHOTGUN_MIN_PELLETS, SHOTGUN_MAX_PELLETS);
     for (let i = 0; i < count; i += 1) {
-      const spread = randomRange(-Math.PI / 6, Math.PI / 6);
+      const spread = randomRange(
+        -SHOTGUN_SPREAD_HALF_ANGLE,
+        SHOTGUN_SPREAD_HALF_ANGLE
+      );
       const angle = baseAngle + spread;
+      const speed =
+        player.bulletSpeed *
+        randomRange(
+          SHOTGUN_MIN_SPEED_MULTIPLIER,
+          SHOTGUN_MAX_SPEED_MULTIPLIER
+        );
       createBullet(
         playerBullets,
         player.x,
         player.y,
-        Math.cos(angle) * player.bulletSpeed,
-        Math.sin(angle) * player.bulletSpeed,
+        Math.cos(angle) * speed,
+        Math.sin(angle) * speed,
         2,
         "#a5d8ff",
         player.damage,
@@ -505,7 +548,7 @@ const fireEnemyBullets = (enemy) => {
       enemy.y,
       Math.cos(baseAngle) * speed,
       Math.sin(baseAngle) * speed,
-      2,
+      enemy.bulletRadius,
       "#ff8787",
       damage,
       ENEMY_BULLET_LIFETIME
@@ -522,7 +565,7 @@ const fireEnemyBullets = (enemy) => {
         enemy.y,
         Math.cos(angle) * spreadSpeed,
         Math.sin(angle) * spreadSpeed,
-        2,
+        enemy.bulletRadius,
         "#ffd43b",
         damage,
         ENEMY_BULLET_LIFETIME
@@ -538,7 +581,7 @@ const fireEnemyBullets = (enemy) => {
       enemy.y,
       Math.cos(angle) * speed,
       Math.sin(angle) * speed,
-      2,
+      enemy.bulletRadius,
       "#63e6be",
       damage,
       ENEMY_BULLET_LIFETIME
@@ -586,11 +629,17 @@ const updateBullets = (collection, dt, isPlayer = false) => {
       const targetDy = bullet.homingTarget.y - bullet.y;
       const targetDistance = Math.hypot(targetDx, targetDy);
       if (targetDistance > 0) {
-        const speed = Math.hypot(bullet.vx, bullet.vy);
-        const targetVx = (targetDx / targetDistance) * speed;
-        const targetVy = (targetDy / targetDistance) * speed;
-        bullet.vx += (targetVx - bullet.vx) * GUIDANCE_TURN_RATE;
-        bullet.vy += (targetVy - bullet.vy) * GUIDANCE_TURN_RATE;
+        const speed = bullet.homingSpeed ?? Math.hypot(bullet.vx, bullet.vy);
+        const currentAngle = Math.atan2(bullet.vy, bullet.vx);
+        const targetAngle = Math.atan2(targetDy, targetDx);
+        const angleDifference = Math.atan2(
+          Math.sin(targetAngle - currentAngle),
+          Math.cos(targetAngle - currentAngle)
+        );
+        const steeredAngle =
+          currentAngle + angleDifference * GUIDANCE_TURN_RATE;
+        bullet.vx = Math.cos(steeredAngle) * speed;
+        bullet.vy = Math.sin(steeredAngle) * speed;
       }
     }
     bullet.x += bullet.vx * dt;
@@ -622,7 +671,7 @@ const updateEnemies = (dt) => {
     const distance = Math.hypot(dx, dy);
     const directionX = distance === 0 ? 0 : dx / distance;
     const directionY = distance === 0 ? 0 : dy / distance;
-    if (distance > 0 && distance < ENEMY_DETECTION_RANGE) {
+    if (distance > 0) {
       enemy.x += directionX * enemy.speed * dt;
       enemy.y += directionY * enemy.speed * dt;
     }
@@ -764,9 +813,7 @@ const update = (dt) => {
   updateHitParticles(dt);
   handleCollisions();
 
-  if (player.hp <= 0) {
-    state.gameOver = true;
-  }
+  if (player.hp <= 0) finishGame();
 };
 
 const drawPlayer = () => {
@@ -797,8 +844,39 @@ const drawEnemies = () => {
   });
 };
 
-const drawBullets = (collection) => {
+const drawBullets = (collection, isPlayer = false) => {
   collection.forEach((bullet) => {
+    if (isPlayer) {
+      const speed = Math.hypot(bullet.vx, bullet.vy);
+      if (speed > 0) {
+        const directionX = bullet.vx / speed;
+        const directionY = bullet.vy / speed;
+        const trailLength = clamp(speed * 0.035, 4, 7);
+        ctx.save();
+        ctx.globalAlpha = 0.45;
+        ctx.strokeStyle = "#74c0fc";
+        ctx.lineWidth = Math.max(1, bullet.radius);
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(
+          bullet.x - directionX * bullet.radius,
+          bullet.y - directionY * bullet.radius
+        );
+        ctx.lineTo(
+          bullet.x - directionX * (bullet.radius + trailLength),
+          bullet.y - directionY * (bullet.radius + trailLength)
+        );
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      ctx.fillStyle = bullet.color;
+      ctx.beginPath();
+      ctx.arc(bullet.x, bullet.y, bullet.radius, 0, Math.PI * 2);
+      ctx.fill();
+      return;
+    }
+
     ctx.fillStyle = bullet.color;
     ctx.fillRect(
       bullet.x - bullet.radius,
@@ -810,15 +888,15 @@ const drawBullets = (collection) => {
 };
 
 const drawItems = () => {
+  ctx.save();
+  ctx.font = '12px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
   items.forEach((item) => {
     ctx.fillStyle = item.color;
-    ctx.fillRect(
-      item.x - item.radius,
-      item.y - item.radius,
-      item.radius * 2,
-      item.radius * 2
-    );
+    ctx.fillText(item.emoji, Math.round(item.x), Math.round(item.y));
   });
+  ctx.restore();
 };
 
 const drawFloatingTexts = () => {
@@ -876,27 +954,15 @@ const drawHitParticles = () => {
   ctx.globalAlpha = 1;
 };
 
-const drawGameOver = () => {
-  if (!state.gameOver) return;
-  ctx.fillStyle = "rgba(15, 17, 23, 0.7)";
-  ctx.fillRect(0, 0, world.width, world.height);
-  ctx.fillStyle = "#f8f9fa";
-  ctx.font = "18px monospace";
-  ctx.fillText("游戏结束", world.width / 2 - 38, world.height / 2 - 8);
-  ctx.font = "12px monospace";
-  ctx.fillText("按 R 重新开始", world.width / 2 - 52, world.height / 2 + 16);
-};
-
 const render = () => {
   drawBackground();
   drawItems();
-  drawBullets(playerBullets);
+  drawBullets(playerBullets, true);
   drawBullets(enemyBullets);
   drawEnemies();
   drawPlayer();
   drawHitParticles();
   drawFloatingTexts();
-  drawGameOver();
 };
 
 const loop = (timestamp) => {
@@ -911,9 +977,13 @@ const loop = (timestamp) => {
 const startGame = () => {
   resetGame();
   state.scene = "playing";
+  state.fromPause = false;
+  input.keys.clear();
+  input.mouse.down = false;
   setOverlayVisible(startMenu, false);
   setOverlayVisible(settingsMenu, false);
   setOverlayVisible(pauseMenu, false);
+  setOverlayVisible(gameOverMenu, false);
   resumeBgm();
 };
 
@@ -947,18 +1017,37 @@ const pauseGame = () => {
 const resumeGame = () => {
   if (state.scene !== "paused") return;
   state.scene = "playing";
+  input.keys.clear();
+  input.mouse.down = false;
   setOverlayVisible(settingsMenu, false);
   setOverlayVisible(pauseMenu, false);
+  setOverlayVisible(gameOverMenu, false);
   resumeBgm();
+};
+
+const finishGame = () => {
+  if (state.scene !== "playing" || state.gameOver) return;
+  state.gameOver = true;
+  state.scene = "gameOver";
+  input.keys.clear();
+  input.mouse.down = false;
+  gameOverSummary.textContent = `坚持 ${Math.floor(state.time)} 秒，击败 ${state.kills} 个敌人`;
+  setOverlayVisible(startMenu, false);
+  setOverlayVisible(settingsMenu, false);
+  setOverlayVisible(pauseMenu, false);
+  setOverlayVisible(gameOverMenu, true);
+  pauseBgm();
 };
 
 const backToMenu = () => {
   state.scene = "menu";
+  state.fromPause = false;
   input.keys.clear();
   input.mouse.down = false;
   resetGame();
   setOverlayVisible(settingsMenu, false);
   setOverlayVisible(pauseMenu, false);
+  setOverlayVisible(gameOverMenu, false);
   setOverlayVisible(startMenu, true);
   pauseBgm();
 };
@@ -995,11 +1084,16 @@ window.addEventListener("keydown", (event) => {
       resumeGame();
     } else if (state.scene === "settings") {
       closeSettings();
+    } else if (state.scene === "gameOver") {
+      backToMenu();
     }
     return;
   }
-  if (key === "r" && state.scene === "playing") {
-    resetGame();
+  if (
+    key === "r" &&
+    ["playing", "paused", "gameOver"].includes(state.scene)
+  ) {
+    startGame();
     return;
   }
   if (key === "q") {
@@ -1048,7 +1142,19 @@ resumeGameBtn.addEventListener("click", () => {
   resumeGame();
 });
 
+restartFromPauseBtn.addEventListener("click", () => {
+  startGame();
+});
+
 backToMenuBtn.addEventListener("click", () => {
+  backToMenu();
+});
+
+restartGameBtn.addEventListener("click", () => {
+  startGame();
+});
+
+gameOverBackToMenuBtn.addEventListener("click", () => {
   backToMenu();
 });
 
@@ -1098,4 +1204,5 @@ updateSelectedEquipments();
 setOverlayVisible(startMenu, true);
 setOverlayVisible(settingsMenu, false);
 setOverlayVisible(pauseMenu, false);
+setOverlayVisible(gameOverMenu, false);
 requestAnimationFrame(loop);

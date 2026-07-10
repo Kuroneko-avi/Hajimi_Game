@@ -5,7 +5,7 @@
   "main": "game.js",
   "scripts": {
     "start": "python3 -m http.server 8000",
-    "test": "echo \"No tests specified\""
+    "test": "node --test"
   },
   "repository": {
     "type": "git",
